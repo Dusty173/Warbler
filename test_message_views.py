@@ -39,8 +39,8 @@ class MessageViewTestCase(TestCase):
     def setUp(self):
         """Create test client, add sample data."""
 
-        User.query.delete()
-        Message.query.delete()
+        db.drop_all()
+        db.create_all()
 
         self.client = app.test_client()
 
@@ -50,6 +50,10 @@ class MessageViewTestCase(TestCase):
                                     image_url=None)
 
         db.session.commit()
+
+    def tearDown(self):
+        """Teardown tests/ failed transactions"""
+        db.session.rollback()
 
     def test_add_message(self):
         """Can use add a message?"""
@@ -71,3 +75,45 @@ class MessageViewTestCase(TestCase):
 
             msg = Message.query.one()
             self.assertEqual(msg.text, "Hello")
+
+    def test_show_message(self):
+        """Test if msg is displayed"""
+
+        msg = Message(
+            text="Test message.",
+            user_id=self.testuser.id
+        )
+        
+        db.session.add(msg)
+        db.session.commit()
+
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = self.testuser.id
+            
+            msg = Message.query.get(1)
+
+            resp = c.get(f'/messages/{msg.id}')
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(msg.text, str(resp.data))
+
+    def test_message_delete(self):
+        """Test if can delete msg"""
+        msg = Message(
+            id=1,
+            text="a test message",
+            user_id=self.testuser_id
+        )
+        db.session.add(msg)
+        db.session.commit()
+
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = self.testuser.id
+
+            resp = c.post("/messages/1/delete", follow_redirects=True)
+            self.assertEqual(resp.status_code, 200)
+
+            msg = Message.query.get(1)
+            self.assertIsNone(msg)
